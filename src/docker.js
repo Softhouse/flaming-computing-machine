@@ -61,6 +61,8 @@ exports.run = function runImage (build, cb) {
     '-e', 'MONGO_HOST=' + dbHost,
     // Give it a virtual host configuration that [Katalog](https://registry.hub.docker.com/u/joakimbeng/katalog/) picks up
     '-e', 'KATALOG_VHOSTS=default' + (build.endpoint ? '/' + build.endpoint : ''),
+    // Give it a virtual host configuration that [Registrator](https://github.com/gliderlabs/registrator) picks up
+    '-e', 'SERVICE_NAME=' + (build.endpoint ? build.endpoint : ''),
     buildToImageName(build)
   ];
 

@@ -13,4 +13,7 @@ ADD . /app
 
 WORKDIR /app
 
-CMD pm2 start --name app /app/src/index.js && pm2 logs app
+RUN chmod +x ./entrypoint.sh
+ENTRYPOINT ["./entrypoint.sh"]
+
+CMD ["pm2", "start", "/app/src/index.js", "--no-daemon"]

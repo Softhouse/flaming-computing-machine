@@ -1,6 +1,9 @@
 FROM library/node
 
-RUN npm install -g pm2
+RUN apt-get -qqy update \
+ && apt-get -qqy install apparmor \
+ && rm -rf /var/lib/apt/lists/* \
+ && npm install -g pm2
 
 ADD package.json /app/package.json
 

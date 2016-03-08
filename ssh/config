@@ -1,0 +1,10 @@
+# ssh/config
+# Git keys
+# Add the id_rsa and id_rsa.pub to the ssh dir
+# Example:
+# host your.git.server.tld
+#     user git
+#     port 22
+#     StrictHostKeyChecking no
+#     identityfile /root/.ssh/id_rsa
+

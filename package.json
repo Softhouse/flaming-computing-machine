@@ -27,6 +27,8 @@
   },
   "homepage": "https://github.com/Softhouse/flaming-computing-machine",
   "dependencies": {
-    "mongodb": "^1.4.33"
+    "bluebird": "^3.3.3",
+    "child-process-promise": "^1.1.0",
+    "mongodb": "^2.1.7"
   }
 }

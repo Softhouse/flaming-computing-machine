@@ -1,52 +1,71 @@
 'use strict';
 
-exports.next = function next (db, cb) {
-  // Find the oldest build which is not successful and have 5 or less build attempts:
-  db.collection('buildqueue')
-    .find(
-      {isSuccessful: false, nrOfAttempts: {$lt: 5}},
-      {limit: 1, sort: [['createdAt', 'ascending']]}
-    )
-    .toArray(function (err, builds) {
-      if (err) {
-        return cb(err);
-      }
-      return cb(null, builds[0]);
-    });
+var Promise = require('bluebird');
+
+// EXPORTS
+// =============================================================================
+
+/**
+* Finds the oldest build which is not successful and have 5 or less build attempts
+*
+* @param {Object} db - the db object returned from mongodb.connect()
+*/
+exports.next = function (db) {
+  return new Promise(function (resolve, reject) {
+    db.collection('buildqueue')
+      .find(
+        {isSuccessful: false, nrOfAttempts: {$lt: 5}},
+        {limit: 1, sort: [['createdAt', 'ascending']]}
+      )
+      .toArrayAsync()
+      .spread(resolve)
+      .catch(reject);
+  });
 };
 
-exports.update = function update (db, build, cb) {
-  var buildqueue = db.collection('buildqueue');
-
-  if (build.isSuccessful) {
-    // Tag other related unsuccessful builds as successful as well:
-    buildqueue.update(
+/**
+* Updates the given buildContext (buildqueue item)
+*
+* @param {Object} db - the db object returned from mongodb.connect()
+* @param {Object} buildContext - the buildqueue item to update
+*/
+exports.update = function (db, buildContext) {
+  return new Promise(function (resolve, reject) {
+    var buildqueue = db.collection('buildqueue');
+    if (buildContext.isSuccessful) {
+      // update any other builds for the same repo.
+      buildqueue.updateAsync(
       {
-        repo: build.repo,
-        commit: build.commit,
+        repo: buildContext.repo,
+        commit: buildContext.commit,
         isSuccessful: false,
-        _id: {$ne: build._id}
+        _id: {$ne: buildContext._id}
       },
       {
         $set: {
           isSuccessful: true,
           message: 'cleared by other build with same commit',
-          buildAt: build.buildAt
+          buildAt: buildContext.buildAt
         }
       },
-      {w: 1},
-      function (err) {
-        if (err) {
-          return cb(err);
-        }
-        update();
-      }
-    );
-  } else {
-    update();
-  }
+      {w: 1})
+        .then(function() {
+          // update the buildqueue item
+          return update(buildqueue, buildContext)
+            .then(resolve);
+        });
 
-  function update () {
-    buildqueue.update({_id: build._id}, build, {w: 1}, cb);
+    } else {
+      // update the buildqueue item
+      return update(buildqueue, buildContext)
+        .then(resolve);
+    }
+  });
+
+  function update (buildqueue, buildContext) {
+    return buildqueue.updateAsync({_id: buildContext._id}, buildContext, {w: 1})
+      .then(function () {
+        return buildContext;
+      });
   }
 };

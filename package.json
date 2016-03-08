@@ -15,6 +15,12 @@
     "build"
   ],
   "author": "Joakim Carlstein <joakim.carlstein@softhouse.se>",
+  "contributors": [
+    {
+      "name": "Rasmus Letterkrantz",
+      "email": "rasmus.xx.letterkrantz@softhouse.se"
+    }
+  ],
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/Softhouse/flaming-computing-machine/issues"

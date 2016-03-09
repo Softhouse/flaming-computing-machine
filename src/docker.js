@@ -7,16 +7,6 @@ var dbHost = process.env.MONGO_HOST || 'localhost';
 var sitewatcherHost = process.env.SITEWATCHER_HOST || 'localhost';
 var containerLinks;
 
-// PROMISIFICATION
-// =============================================================================
-
-function promiseFromChildProcess(child) {
-    return new Promise(function (resolve, reject) {
-        child.addListener("error", reject);
-        child.addListener("exit", resolve);
-    });
-}
-
 // EXPORTS
 // =============================================================================
 

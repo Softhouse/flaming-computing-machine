@@ -15,12 +15,20 @@
     "build"
   ],
   "author": "Joakim Carlstein <joakim.carlstein@softhouse.se>",
+  "contributors": [
+    {
+      "name": "Rasmus Letterkrantz",
+      "email": "rasmus.xx.letterkrantz@softhouse.se"
+    }
+  ],
   "license": "MIT",
   "bugs": {
     "url": "https://github.com/Softhouse/flaming-computing-machine/issues"
   },
   "homepage": "https://github.com/Softhouse/flaming-computing-machine",
   "dependencies": {
-    "mongodb": "^1.4.33"
+    "bluebird": "^3.3.3",
+    "child-process-promise": "^1.1.0",
+    "mongodb": "^2.1.7"
   }
 }

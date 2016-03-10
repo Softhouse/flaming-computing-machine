@@ -1,54 +1,34 @@
-'use strict';
-var spawn = require('child_process').spawn;
-var exec = require('child_process').exec;
+'use strict'
+
+var Promise = require('bluebird');
+var spawn = require('child-process-promise').spawn;
+var exec = require('child-process-promise').exec;
 var dbHost = process.env.MONGO_HOST || 'localhost';
 var sitewatcherHost = process.env.SITEWATCHER_HOST || 'localhost';
 var containerLinks;
 
-exports.build = function doBuild (build, cb) {
-  var image = buildToImageName(build);
-  buildImage(build.repo, image, function (err, message) {
-    cb(err, message);
-  });
+// EXPORTS
+// =============================================================================
+
+/**
+* Builds an image given a buildcontext
+*
+* @param {Object} buildContext - the buldqueue context item containing all the info
+*/
+exports.build = function (buildContext) {
+    var image = getImageNameFromBuild(buildContext);
+    return buildImage(buildContext.repo, image);
 };
 
-exports.getRunning = function getRunning (build, cb) {
-  runningImages(buildToTagName(build), function (err, res) {
-    if (err) {
-      return cb(err);
-    }
-    // The response is one container id per line, make an array of it:
-    cb(null, res.trim().split(/\n/g));
-  });
-};
-
-exports.isRunning = function (containerName, cb) {
-  exec('docker ps | grep "' + containerName + '"', function (err, stdout) {
-    if (err) {
-      return cb(null, false);
-    }
-    stdout = (''+stdout).trim();
-    cb(null, !!stdout);
-  });
-};
-
-exports.kill = function kill (containerIds, cb) {
-  containerIds = containerIds.filter(Boolean);
-  if (!containerIds.length) {
-    // No containers to kill, do nothing...
-    return cb();
-  }
-  // Force remove all given container id's (the quickest way to stop a running container)
-  // Should consider making this in two steps though, like:
-  //   1. docker stop <containerid>
-  //   2. docker rm <containerid>
-  // Which is better, and gives each container the chance for cleaning up before being killed
-  run('docker', ['rm', '-f'].concat(containerIds), cb);
-};
-
-exports.run = function runImage (build, cb) {
+/**
+* Starts a container given a buildContext (build)
+* Note that the context must have been used to build and image first
+*
+* @param {Object} buildContext - the buldqueue context item containing all the info
+*/
+exports.start = function (buildContext) {
   var now = +new Date();
-  var name = buildToTagName(build) + '_' + now;
+  var name = getTagNameFromBuild(buildContext) + '_' + now;
   var args = [
     'run',
     // Run container as daemon
@@ -60,117 +40,226 @@ exports.run = function runImage (build, cb) {
     // Pass the MONGO_HOST env var on to the container (used by the API-container)
     '-e', 'MONGO_HOST=' + dbHost,
     // Give it a virtual host configuration that [Katalog](https://registry.hub.docker.com/u/joakimbeng/katalog/) picks up
-    '-e', 'KATALOG_VHOSTS=default' + (build.endpoint ? '/' + build.endpoint : ''),
+    '-e', 'KATALOG_VHOSTS=default' + (buildContext.endpoint ? '/' + buildContext.endpoint : ''),
     // Give it a virtual host configuration that [Registrator](https://github.com/gliderlabs/registrator) picks up
-    '-e', 'SERVICE_NAME=' + (build.endpoint ? build.endpoint : ''),
-    buildToImageName(build)
+    '-e', 'SERVICE_NAME=' + (buildContext.endpoint ? buildContext.endpoint : ''),
+    getImageNameFromBuild(buildContext)
   ];
 
-  // TODO: promisify
-  appendLink(dbHost, args, function() {
-    appendLink(sitewatcherHost, args, function() {
-      run('docker', args, function (err) {
-        cb(err, name);
-      });
+  return appendLink(dbHost, args)
+    .then(function() {
+      return appendLink(sitewatcherHost, args);
+    })
+    .then(function() {
+      return run('docker', args);
+    })
+    .then(function() {
+      return name;
     });
-  });
 };
 
-function appendLink(hostname, args, cb) {
-  getLink(hostname, function(err, link) {
-    if(link) {
-      args.splice(args.length-1, 0, '--link', link)
+/**
+* Removes all containers matching the given id's; quickest way to stop a container
+*
+* Should consider making this in two steps though, like:
+*   1. docker stop <containerid>
+*   2. docker rm <containerid>
+* Which is better, and gives each container the chance for cleaning up before being killed
+*
+* @param {Array} containerIds - the container id's matching the containers to kill
+*/
+exports.kill = function (containerIds) {
+  return new Promise(function (resolve) {
+    containerIds = containerIds.filter(Boolean);
+    if (!containerIds.length) {
+      return resolve();
     }
-    cb();
-  });
-}
 
-function buildToImageName (build) {
-  // build.fullName is GitHub's "<owner>/<repo>", e.g. "Softhouse/laughing-batman"
-  // Docker does not allow uppercase letters in image names though:
-  return build.fullName.toLowerCase();
+    return run('docker', ['rm', '-f'].concat(containerIds))
+      .then(resolve);
+  });
 };
 
-function buildToTagName (build) {
-  // "/" is used by docker as a namespace separator, so we must remove it
-  // before using it as the name for a new container:
-  return buildToImageName(build).replace(/\//g, '_');
+/**
+* Returns all the id's of containers running, matching the buildContext
+*
+* @param {Object} buildContext - the buldqueue context item containing all the info
+*/
+exports.getRunning = function (buildContext) {
+  return runningImages(getTagNameFromBuild(buildContext))
+    .then(trimAndSplit(/\n/g));
 };
 
-function runningImages (tag, cb) {
-  // Running `exec` instead of `spawn` here, because otherwise piping is complex.
-  // What we do here is:
-  //  * docker ps -a # list all containers, running or not
-  //  * grep "<container tag name>" # filter by container tag name, used when starting the container in `runImage` above
-  //  * awk '{print $1}' # get the contents of the first column in the output, i.e. the container id's
-  exec('docker ps -a | grep "' + tag + '" | awk \'{print $1}\'', function (err, stdout) {
-    if (err) {
-      return cb(null, false);
-    }
-    cb(null, ''+stdout);
-  });
-}
+/**
+* Returns true or false depending on if there is a container with a given containerName
+* Running `exec` instead of `spawn` here, because otherwise piping is complex.
+*
+* @param {String} containerName - the container name to check
+*/
+exports.isRunning = function (containerName) {
+  return exec('docker ps | grep "' + containerName + '"')
+    .then(function (res) {
+      return !!(res.stdout.toString());
+    })
+    .fail(function () {
+      return false;
+    })
+};
 
-function buildImage (repo, imageName, cb) {
+// IMAGES
+// =============================================================================
+
+/**
+* Builds and image from the given repository and tags it with the imageName
+*
+* @param {String} repo - the url to the git repository
+* @param {String} imageName - the name to give the image
+*/
+function buildImage (repo, imageName) {
   // Builds a container from a repository URL and tags it with an image name:
-  run('docker', ['build', '-t', imageName, repo], cb);
+  return run('docker', ['build', '-t', imageName, repo]);
 }
+
+/**
+* Function for retriving the ids of the containers, running images given a tag
+*
+* Running `exec` instead of `spawn` here, because otherwise piping is complex.
+* What we do here is:
+*   * docker ps -a # list all containers, running or not
+*   * grep "<container tag name>" # filter by container tag name
+*   * awk '{print $1}' # get the contents of the first column in the output, i.e. the container id's
+*
+* @param {String} tag - the tag identifying the images
+*/
+function runningImages (tag) {
+  return new Promise(function (resolve) {
+    return exec('docker ps -a | grep "' + tag + '" | awk \'{print $1}\'')
+      .then(function(res) {
+        return resolve(res.stdout.toString());
+      })
+      .fail(function(err) {
+        return resolve(false);
+      });
+  });
+}
+
+// LINKS
+// =============================================================================
+
+/**
+* Adds a link to the container matching the hostname
+*
+* @param {String} hostname - then name for the container to link
+*/
+function appendLink (hostname, args) {
+  return getLink(hostname)
+    .then(function(link) {
+      return args.splice(args.length - 1, 0, '--link', link);
+    })
+    .catch(function() {
+      return;
+    });
+}
+
+/**
+* Retrieves a link for the given hostname
+*
+* @param {String} hostname - then name for the container to find a link for
+*/
+function getLink(hostname) {
+  return inspectContainerLinks(process.env.HOSTNAME)
+    .any(function(link) {
+      if (link.match('.*\/' + hostname + '$')) return link.replace(/:\/.*\//,':');
+    })
+    .catch(function () {
+      throw ('no link match for hostname ' + hostname);
+    });
+}
+
+/**
+* Retrieves the links to a container given the cid
+*
+* @param {String} cid - the cid of the container to inspect
+*/
+function inspectContainerLinks(cid) {
+  return new Promise(function (resolve, reject) {
+    if(containerLinks) {
+      return resolve(containerLinks);
+    }
+    return run('docker', ['inspect', '--format="{{json .HostConfig.Links}}"', cid])
+      .then(function(res) {
+        containerLinks = JSON.parse(res.trim());
+        return resolve(containerLinks);
+      });
+  });
+}
+
+// COMMANDS
+// =============================================================================
 
 /**
 * A simplified `spawn` api
 *
 * @param {String} cmd - Command to run
 * @param {Array} args - Arguments to pass to command
-* @param {Function} cb - Callback to call when done or error
 */
-function run (cmd, args, cb) {
-  var command = spawn(cmd, args);
+function run (cmd, args) {
+  return new Promise(function (resolve, reject) {
+    var data = '';
+    spawn(cmd, args)
+      .progress(function(command) {
 
-  var data = '';
+        command.stdout.on('data', addToData);
+        command.stderr.on('data', addToData);
 
-  command.stdout.on('data', function (d) {
-    data += d;
+        function addToData(d) {
+          data +=d;
+        }
+
+      })
+      .then(function () {
+        return resolve(data)
+      })
+      .fail(reject);
   });
 
-  command.stderr.on('data', function (d) {
-    data += d;
-  });
-
-  command.on('error', function (err) {
-    cb(err);
-  });
-
-  command.on('close', function (code) {
-    if (code !== 0) {
-      return cb(new Error(data));
-    }
-    return cb(null, data);
-  });
 }
 
-function getLink(hostname, cb) {
-  inspectContainerLinks(process.env.HOSTNAME, function(err, res) {
-    if (err) {
-      return cb(err)
-    }
-    for(var i = 0; i < res.length; i++) {
-      if (res[i].match('.*\/' + hostname + '$')) { // /vagrant_sitewatcher_1:/vagrant_builder_1/xyz
-        return cb(null, res[i].replace(/:\/.*\//,':')); // /vagrant_sitewatcher_1:xyz
-      }
-    }
-    return cb('no link match for hostname ' + hostname)
-  })
+// HELPER FUNCTIONS
+// =============================================================================
+
+/**
+* Double function to trim and split a string given a pattern
+* Ex:
+* Promise().then(trimAndSplit(/\n/g))
+*
+* @param {String} pattern - the pattern to apply to the replace function
+* @param {Array} string - the string to apply the functions on
+*/
+function trimAndSplit(pattern) {
+  return function(string) {
+    return string.trim().split(pattern);
+  };
 }
 
-function inspectContainerLinks(cid, cb) {
-  if(containerLinks) {
-    return cb(null, containerLinks);
-  }
-  run('docker', ['inspect', '--format="{{json .HostConfig.Links}}"', cid], function (err, res) {
-    if (err) {
-      return cb(err);
-    }
-    containerLinks = JSON.parse(res.trim());
-    return cb(null, containerLinks);
-  });
-}
+/**
+* Function to extract a valid ImageName from a buildContext
+* build.fullName is the Git "<owner>/<repo>", e.g. "Softhouse/laughing-batman"
+*
+* @param {Object} build - the build context from which to extract the name
+*/
+function getImageNameFromBuild (buildContext) {
+  return buildContext.fullName.toLowerCase();
+};
+
+/**
+* Function to extract a valid TagName from a buildContext
+* "/" is used by docker as a namespace separator, so we must remove it
+*
+* @param {Object} build - the build context from which to extract the name
+*/
+function getTagNameFromBuild (buildContext) {
+  // "/" is used by docker as a namespace separator, so we must remove it
+  // before using it as the name for a new container:
+  return getImageNameFromBuild(buildContext).replace(/\//g, '_');
+};

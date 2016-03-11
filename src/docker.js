@@ -46,7 +46,7 @@ exports.start = function (buildContext) {
     // Assign a way to comunicate with xyz through sitewatcher (TEMP FIX)
     '-e', 'SITEWATCHER_HOST=xyz',
     // Link sitewatcher as xyz (TEMP FIX)
-    '--link', 'sitewatcher:xyz'
+    '--link', 'sitewatcher:xyz',
     getImageNameFromBuild(buildContext)
   ];
 

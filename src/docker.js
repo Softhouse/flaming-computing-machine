@@ -45,7 +45,7 @@ exports.start = function (buildContext) {
     '-e', 'SERVICE_NAME=' + (buildContext.endpoint ? buildContext.endpoint : ''),
     // Assign a way to comunicate with xyz through sitewatcher (TEMP FIX)
     // Link sitewatcher (TEMP FIX)
-    '--link', sitewatcherHost,
+    '--link', sitewatcherHost + ':xyz',
     getImageNameFromBuild(buildContext)
   ];
 

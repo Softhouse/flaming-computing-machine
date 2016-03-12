@@ -216,6 +216,7 @@ function run (cmd, args) {
         command.stderr.on('data', addToData);
 
         function addToData(d) {
+          console.log(d.toString());
           data +=d;
         }
 

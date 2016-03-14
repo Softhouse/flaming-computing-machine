@@ -43,11 +43,7 @@ exports.start = function (buildContext) {
     // Give it a virtual host configuration that [Katalog](https://registry.hub.docker.com/u/joakimbeng/katalog/) picks up
     '-e', 'KATALOG_VHOSTS=default' + (buildContext.endpoint ? '/' + buildContext.endpoint : ''),
     // Give it a virtual host configuration that [Registrator](https://github.com/gliderlabs/registrator) picks up
-    '-e', 'SERVICE_NAME=' + (buildContext.endpoint ? buildContext.endpoint : ''),
-    // Assign a way to comunicate with xyz through sitewatcher (TEMP FIX)
-    // Link sitewatcher (TEMP FIX)
-    '--link', 'sitewatcher:xyz',
-    getImageNameFromBuild(buildContext)
+    '-e', 'SERVICE_NAME=' + (buildContext.endpoint ? buildContext.endpoint : '')
   ];
 
   return appendLink(dbHost, args)
@@ -55,12 +51,15 @@ exports.start = function (buildContext) {
       return appendLink(sitewatcherHost, args);
     })
     .then(function() {
-      return appendNetwork(args);
+      return getEnv('SERVICE_NET')
+        .then(spreadEnvAsArg(args, '--net'));
     })
     .then(function() {
-      return appendDNS(args);
+      return getEnv('SERVICE_DNS')
+        .then(spreadEnvAsArg(args, '--dns'));
     })
     .then(function() {
+      args.push(getImageNameFromBuild(buildContext));
       return run('docker', args);
     })
     .then(function() {
@@ -153,7 +152,7 @@ function runningImages (tag) {
   });
 }
 
-// LINKS
+// ARGUMENTS
 // =============================================================================
 
 /**
@@ -165,7 +164,8 @@ function runningImages (tag) {
 function appendLink (hostname, args) {
   return getLink(hostname)
     .then(function(link) {
-      return args.splice(args.length - 1, 0, '--link', link);
+      args.push('--link')
+      return args.concat['--link', link];
     })
     .catch(function() {
       return;
@@ -173,37 +173,20 @@ function appendLink (hostname, args) {
 }
 
 /**
-* Adds the networks from the host
+* Assigns every value, parsed from the given env, as an argument
+* with the name of argName's value.
 *
 * @param {Array} args - the arguments for the run command
+* @param {String} argName - then name for the container to link
+* @param {String} env - the env parsed from the container. Ex: NETWORK_SERVICE=xxxx, xxxx etc
 */
-function appendNetwork (args) {
-  return getEnv('SERVICE_NET')
-    .then(function(env) {
-      var networks = env.trim().split('=')[1].split(',');
-      return Promise.each(networks, function(network) {
-        args = args.splice(args.length - 1, 0, '--net=' + network);
-      });
-    })
-    .catch(function(err) {
-      return;
+function spreadEnvAsArg(args, argName) {
+  return function (env) {
+    var argList = env.trim().split('=')[1].split(',');
+    return Promise.each(argList, function(arg) {
+      args.push(argName + '=' + arg);
     });
-}
-
-/**
-* Adds the networks from the host
-*
-* @param {Array} args - the arguments for the run command
-*/
-function appendDNS (args) {
-  return getEnv('SERVICE_DNS')
-    .then(function(env) {
-      var networks = env.trim().split('=')[1].split(',');
-      args = args.splice(args.length - 1, 0, '--dns=' + networks);
-    })
-    .catch(function(err) {
-      return;
-    });
+  }
 }
 
 /**

@@ -51,11 +51,11 @@ exports.start = function (buildContext) {
       return appendLink(sitewatcherHost, args);
     })
     .then(function() {
-      return getEnv('SERVICE_NET')
+      return splitEnv('SERVICE_NET')
         .then(spreadEnvAsArg(args, '--net'));
     })
     .then(function() {
-      return getEnv('SERVICE_DNS')
+      return splitEnv('SERVICE_DNS')
         .then(spreadEnvAsArg(args, '--dns'));
     })
     .then(function() {
@@ -164,7 +164,6 @@ function runningImages (tag) {
 function appendLink (hostname, args) {
   return getLink(hostname)
     .then(function(link) {
-      args.push('--link')
       return args.concat['--link', link];
     })
     .catch(function() {
@@ -178,15 +177,18 @@ function appendLink (hostname, args) {
 *
 * @param {Array} args - the arguments for the run command
 * @param {String} argName - then name for the container to link
-* @param {String} env - the env parsed from the container. Ex: NETWORK_SERVICE=xxxx, xxxx etc
+* @param {String} envArgs - the parsed arguments from the -e variable
 */
 function spreadEnvAsArg(args, argName) {
-  return function (env) {
-    var argList = env.trim().split('=')[1].split(',');
-    return Promise.each(argList, function(arg) {
+  return function (envArgs) {
+    return Promise.each(envArgs, function(arg) {
       args.push(argName + '=' + arg);
     });
   }
+}
+
+function splitEnv(envName) {
+  return Promise.resolve(process.env[envName] ? process.env[envName].trim().split(',') : []);
 }
 
 /**
@@ -206,22 +208,6 @@ function getLink(hostname) {
 }
 
 /**
-* Retrieves an env from the host, given an envname
-*
-* @param {String} envname - the name for the env to search for
-*/
-function getEnv(envname) {
-  return inspectContainerEnvs(process.env.HOSTNAME)
-    .filter(function(env) {
-      return env.indexOf(envname) > -1;
-    })
-    .any()
-    .catch(function (err) {
-      throw ('no env match for envname ' + envname);
-    });
-}
-
-/**
 * Retrieves the links to a container given the cid
 *
 * @param {String} cid - the cid of the container to inspect
@@ -235,24 +221,6 @@ function inspectContainerLinks(cid) {
       .then(function(res) {
         containerLinks = JSON.parse(res.trim());
         return resolve(containerLinks);
-      });
-  });
-}
-
-/**
-* Retrieves the envs to a container given the cid
-*
-* @param {String} cid - the cid of the container to inspect
-*/
-function inspectContainerEnvs(cid) {
-  return new Promise(function (resolve, reject) {
-    if(containerEnvs) {
-      return resolve(containerEnvs);
-    }
-    return run('docker', ['inspect', '--format="{{json .Config.Env}}"', cid])
-      .then(function(res) {
-        containerEnvs = JSON.parse(res.trim());
-        return resolve(containerEnvs);
       });
   });
 }

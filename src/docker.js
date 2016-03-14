@@ -6,6 +6,7 @@ var exec = require('child-process-promise').exec;
 var dbHost = process.env.MONGO_HOST || 'localhost';
 var sitewatcherHost = process.env.SITEWATCHER_HOST || 'localhost';
 var containerLinks;
+var containerEnvs;
 
 // EXPORTS
 // =============================================================================
@@ -49,6 +50,12 @@ exports.start = function (buildContext) {
   return appendLink(dbHost, args)
     .then(function() {
       return appendLink(sitewatcherHost, args);
+    })
+    .then(function() {
+      return appendNetwork(args);
+    })
+    .then(function() {
+      return appendDNS(args);
     })
     .then(function() {
       return run('docker', args);
@@ -150,6 +157,7 @@ function runningImages (tag) {
 * Adds a link to the container matching the hostname
 *
 * @param {String} hostname - then name for the container to link
+* @param {Array} args - the arguments for the run command
 */
 function appendLink (hostname, args) {
   return getLink(hostname)
@@ -162,17 +170,68 @@ function appendLink (hostname, args) {
 }
 
 /**
+* Adds the networks from the host
+*
+* @param {Array} args - the arguments for the run command
+*/
+function appendNetwork (args) {
+  return getEnv('SERVICE_NET')
+    .then(function(env) {
+      var networks = env.trim().split('=')[1].split(',');
+      return Promise.each(networks, function(network) {
+        args = args.splice(args.length - 1, 0, '--net=' + network);
+      });
+    })
+    .catch(function(err) {
+      return;
+    });
+}
+
+/**
+* Adds the networks from the host
+*
+* @param {Array} args - the arguments for the run command
+*/
+function appendDNS (args) {
+  return getEnv('SERVICE_DNS')
+    .then(function(env) {
+      var networks = env.trim().split('=')[1].split(',');
+      args = args.splice(args.length - 1, 0, '--dns=' + networks);
+    })
+    .catch(function(err) {
+      return;
+    });
+}
+
+/**
 * Retrieves a link for the given hostname
 *
 * @param {String} hostname - then name for the container to find a link for
 */
 function getLink(hostname) {
   return inspectContainerLinks(process.env.HOSTNAME)
-    .any(function(link) {
+    .filter(function(link) {
       if (link.match('.*\/' + hostname + '$')) return link.replace(/:\/.*\//,':');
     })
+    .any()
     .catch(function () {
       throw ('no link match for hostname ' + hostname);
+    });
+}
+
+/**
+* Retrieves an env from the host, given an envname
+*
+* @param {String} envname - the name for the env to search for
+*/
+function getEnv(envname) {
+  return inspectContainerEnvs(process.env.HOSTNAME)
+    .filter(function(env) {
+      return env.indexOf(envname) > -1;
+    })
+    .any()
+    .catch(function (err) {
+      throw ('no env match for envname ' + envname);
     });
 }
 
@@ -190,6 +249,24 @@ function inspectContainerLinks(cid) {
       .then(function(res) {
         containerLinks = JSON.parse(res.trim());
         return resolve(containerLinks);
+      });
+  });
+}
+
+/**
+* Retrieves the envs to a container given the cid
+*
+* @param {String} cid - the cid of the container to inspect
+*/
+function inspectContainerEnvs(cid) {
+  return new Promise(function (resolve, reject) {
+    if(containerEnvs) {
+      return resolve(containerEnvs);
+    }
+    return run('docker', ['inspect', '--format="{{json .Config.Env}}"', cid])
+      .then(function(res) {
+        containerEnvs = JSON.parse(res.trim());
+        return resolve(containerEnvs);
       });
   });
 }
@@ -213,6 +290,7 @@ function run (cmd, args) {
         command.stderr.on('data', addToData);
 
         function addToData(d) {
+          console.log(d.toString());
           data +=d;
         }
 

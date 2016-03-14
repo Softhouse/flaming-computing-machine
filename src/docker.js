@@ -6,6 +6,7 @@ var exec = require('child-process-promise').exec;
 var dbHost = process.env.MONGO_HOST || 'localhost';
 var sitewatcherHost = process.env.SITEWATCHER_HOST || 'localhost';
 var containerLinks;
+var containerEnvs;
 
 // EXPORTS
 // =============================================================================
@@ -42,8 +43,7 @@ exports.start = function (buildContext) {
     // Give it a virtual host configuration that [Katalog](https://registry.hub.docker.com/u/joakimbeng/katalog/) picks up
     '-e', 'KATALOG_VHOSTS=default' + (buildContext.endpoint ? '/' + buildContext.endpoint : ''),
     // Give it a virtual host configuration that [Registrator](https://github.com/gliderlabs/registrator) picks up
-    '-e', 'SERVICE_NAME=' + (buildContext.endpoint ? buildContext.endpoint : ''),
-    getImageNameFromBuild(buildContext)
+    '-e', 'SERVICE_NAME=' + (buildContext.endpoint ? buildContext.endpoint : '')
   ];
 
   return appendLink(dbHost, args)
@@ -51,6 +51,15 @@ exports.start = function (buildContext) {
       return appendLink(sitewatcherHost, args);
     })
     .then(function() {
+      return splitEnv('SERVICE_NET')
+        .then(spreadEnvAsArg(args, '--net'));
+    })
+    .then(function() {
+      return splitEnv('SERVICE_DNS')
+        .then(spreadEnvAsArg(args, '--dns'));
+    })
+    .then(function() {
+      args.push(getImageNameFromBuild(buildContext));
       return run('docker', args);
     })
     .then(function() {
@@ -143,22 +152,43 @@ function runningImages (tag) {
   });
 }
 
-// LINKS
+// ARGUMENTS
 // =============================================================================
 
 /**
 * Adds a link to the container matching the hostname
 *
 * @param {String} hostname - then name for the container to link
+* @param {Array} args - the arguments for the run command
 */
 function appendLink (hostname, args) {
   return getLink(hostname)
     .then(function(link) {
-      return args.splice(args.length - 1, 0, '--link', link);
+      return args.concat['--link', link];
     })
     .catch(function() {
       return;
     });
+}
+
+/**
+* Assigns every value, parsed from the given env, as an argument
+* with the name of argName's value.
+*
+* @param {Array} args - the arguments for the run command
+* @param {String} argName - then name for the container to link
+* @param {String} envArgs - the parsed arguments from the -e variable
+*/
+function spreadEnvAsArg(args, argName) {
+  return function (envArgs) {
+    return Promise.each(envArgs, function(arg) {
+      args.push(argName + '=' + arg);
+    });
+  }
+}
+
+function splitEnv(envName) {
+  return Promise.resolve(process.env[envName] ? process.env[envName].trim().split(',') : []);
 }
 
 /**
@@ -168,9 +198,10 @@ function appendLink (hostname, args) {
 */
 function getLink(hostname) {
   return inspectContainerLinks(process.env.HOSTNAME)
-    .any(function(link) {
+    .filter(function(link) {
       if (link.match('.*\/' + hostname + '$')) return link.replace(/:\/.*\//,':');
     })
+    .any()
     .catch(function () {
       throw ('no link match for hostname ' + hostname);
     });

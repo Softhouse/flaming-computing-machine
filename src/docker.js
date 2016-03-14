@@ -44,6 +44,9 @@ exports.start = function (buildContext) {
     '-e', 'KATALOG_VHOSTS=default' + (buildContext.endpoint ? '/' + buildContext.endpoint : ''),
     // Give it a virtual host configuration that [Registrator](https://github.com/gliderlabs/registrator) picks up
     '-e', 'SERVICE_NAME=' + (buildContext.endpoint ? buildContext.endpoint : ''),
+    // Assign a way to comunicate with xyz through sitewatcher (TEMP FIX)
+    // Link sitewatcher (TEMP FIX)
+    '--link', 'sitewatcher:xyz',
     getImageNameFromBuild(buildContext)
   ];
 

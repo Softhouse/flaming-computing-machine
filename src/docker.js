@@ -48,7 +48,7 @@ exports.start = function (buildContext) {
   return appendHostname(args, (buildContext.endpoint ? buildContext.endpoint : ''))
     .then(function() {
       return splitEnv('SERVICE_NET')
-        .then(spreadEnvAsArg(args, '--net'))
+        .then(spreadEnvAsArg(args, '--net'));
     })
     .then(function() {
       return splitEnv('SERVICE_DNS')

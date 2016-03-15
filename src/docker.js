@@ -5,7 +5,6 @@ var spawn = require('child-process-promise').spawn;
 var exec = require('child-process-promise').exec;
 var dbHost = process.env.MONGO_HOST || 'localhost';
 var sitewatcherHost = process.env.SITEWATCHER_HOST || 'localhost';
-var containerLinks;
 var containerEnvs;
 
 // EXPORTS
@@ -46,13 +45,10 @@ exports.start = function (buildContext) {
     '-e', 'SERVICE_NAME=' + (buildContext.endpoint ? buildContext.endpoint : '')
   ];
 
-  return appendLink(dbHost, args)
-    .then(function() {
-      return appendLink(sitewatcherHost, args);
-    })
+  return appendHostname(args, (buildContext.endpoint ? buildContext.endpoint : ''))
     .then(function() {
       return splitEnv('SERVICE_NET')
-        .then(spreadEnvAsArg(args, '--net'));
+        .then(spreadEnvAsArg(args, '--net'))
     })
     .then(function() {
       return splitEnv('SERVICE_DNS')
@@ -156,27 +152,26 @@ function runningImages (tag) {
 // =============================================================================
 
 /**
-* Adds a link to the container matching the hostname
+* Sets the --hostname argument if -e SERVICE_DNS is not set
 *
-* @param {String} hostname - then name for the container to link
 * @param {Array} args - the arguments for the run command
+* @param {String} name - the name to be set
 */
-function appendLink (hostname, args) {
-  return getLink(hostname)
-    .then(function(link) {
-      return args.concat['--link', link];
-    })
-    .catch(function() {
-      return;
-    });
+function appendHostname(args, name) {
+  return new Promise(function(resolve) {
+    if (!process.env.SERVICE_DNS) {
+      args.push('--hostname=' + name);
+    }
+    return resolve(args);
+  })
 }
 
 /**
-* Assigns every value, parsed from the given env, as an argument
+* Assigns every value in envArgs, as an argument
 * with the name of argName's value.
 *
 * @param {Array} args - the arguments for the run command
-* @param {String} argName - then name for the container to link
+* @param {String} argName - then name for the envs to be placed as (ex --dns)
 * @param {String} envArgs - the parsed arguments from the -e variable
 */
 function spreadEnvAsArg(args, argName) {
@@ -187,42 +182,14 @@ function spreadEnvAsArg(args, argName) {
   }
 }
 
+/**
+* Assigns every value in envArgs, as an argument
+* with the name of argName's value.
+*
+* @param {String} envName - the -e variable to parse values from
+*/
 function splitEnv(envName) {
   return Promise.resolve(process.env[envName] ? process.env[envName].trim().split(',') : []);
-}
-
-/**
-* Retrieves a link for the given hostname
-*
-* @param {String} hostname - then name for the container to find a link for
-*/
-function getLink(hostname) {
-  return inspectContainerLinks(process.env.HOSTNAME)
-    .filter(function(link) {
-      if (link.match('.*\/' + hostname + '$')) return link.replace(/:\/.*\//,':');
-    })
-    .any()
-    .catch(function () {
-      throw ('no link match for hostname ' + hostname);
-    });
-}
-
-/**
-* Retrieves the links to a container given the cid
-*
-* @param {String} cid - the cid of the container to inspect
-*/
-function inspectContainerLinks(cid) {
-  return new Promise(function (resolve, reject) {
-    if(containerLinks) {
-      return resolve(containerLinks);
-    }
-    return run('docker', ['inspect', '--format="{{json .HostConfig.Links}}"', cid])
-      .then(function(res) {
-        containerLinks = JSON.parse(res.trim());
-        return resolve(containerLinks);
-      });
-  });
 }
 
 // COMMANDS
